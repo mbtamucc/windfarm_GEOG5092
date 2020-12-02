@@ -23,6 +23,9 @@ from rasterio.mask import mask
 from rasterio.crs import CRS
 from rasterio.warp import calculate_default_transform, reproject, Resampling
 from fiona.crs import from_epsg
+import fiona
+import rasterio
+import rasterio.mask
 
 in_data_dir = r'.\data'
 
@@ -106,28 +109,30 @@ from rasterio.features import rasterize
 from rasterio.transform import from_bounds
 import geopandas as gpd
 # Load some sample data
-df = gpd.read_file(os.path.join(in_data_dir, 'shippinglanes/shippinglanes.shp')
-# lose a bit of resolution, but this is a fairly large file, and this is only an example.
-shape = 1000, 1000
-transform = rasterio.transform.from_bounds(*df['geometry'].total_bounds, *shape)
-rasterize_rivernet = rasterize(
-    [(shape, 1) for shape in df['geometry']],
-    out_shape=shape,
-    transform=transform,
-    fill=0,
-    all_touched=True,
-    dtype=rasterio.uint8)
+def rasterize(shapefile)
+    df = gpd.read_file(os.path.join(in_data_dir, 'shippinglanes/shippinglanes.shp')
+    # lose a bit of resolution, but this is a fairly large file, and this is only an example.
+    shape2 = (1000,1000)
+    transform = rasterio.transform.from_bounds(*df['geometry'].total_bounds, *shape2)
+    rasterize_rivernet = rasterize(
+        [(shape, 1) for shape in df['geometry']],
+        out_shape=shape2,
+        transform=transform,
+        fill=0,
+        all_touched=True,
+        dtype=rasterio.uint8)
 
-with rasterio.open(
-    'rasterized-results.tif', 'w',
-    driver='GTiff',
-    dtype=rasterio.uint8,
-    count=1,
-    width=shape[0],
-    height=shape[1],
-    transform=transform
-) as dst:
-    dst.write(rasterize_rivernet, indexes=1)
+    with rasterio.open(
+        'rasterized-results.tif', 'w',
+        driver='GTiff',
+        dtype=rasterio.uint8,
+        count=1,
+        width=shape[0],
+        height=shape[1],
+        transform=transform
+    ) as dst:
+        dst.write(output_raster, indexes=1)
+    return(output_raster)
 
 #rasterize 3 work in progress
 shp_fn = (gpd.read_file(os.path.join(in_data_dir, 'shippinglanes/shippinglanes.shp')))
@@ -144,7 +149,7 @@ with rasterio.open(out_fn, 'w+', **meta) as out:
     out.write_band(1, out_arr)
 
 
-#masking function (work in progress)
+#masking function
 import rasterio
 from rasterio.plot import show
 from rasterio.plot import show_hist
@@ -152,6 +157,19 @@ from rasterio.mask import mask
 from shapely.geometry import box
 import geopandas as gpd
 from fiona.crs import from_epsg
-import pycrs
 
 
+with fiona.open('./data/bounds/dem_bounds.shp', "r") as shapefile:
+    shapes = [feature["geometry"] for feature in shapefile]
+
+with rasterio.open('./data/reproject_wtk_conus_100m_mean_masked.tif') as src:
+    out_image, out_transform = rasterio.mask.mask(src, shapes, crop=True)
+    out_meta = src.meta
+
+    out_meta.update({"driver": "GTiff",
+                 "height": out_image.shape[1],
+                 "width": out_image.shape[2],
+                 "transform": out_transform})
+
+with rasterio.open("RGB.byte.masked.tif", "w", **out_meta) as dest:
+    dest.write(out_image)

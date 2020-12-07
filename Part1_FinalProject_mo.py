@@ -35,7 +35,7 @@ in_data_dir = r'.\data'
 #parse features from gdb for improved rasterio readability
 #convert shapefiles to rasters
 
-def reprogject (layer):
+def reproject(layer):
     "This is the function that reproject the vector layers"
     master_crs = 'EPSG:26914'
     if layer.crs != master_crs:
@@ -43,7 +43,7 @@ def reprogject (layer):
         layer = layer.to_crs(master_crs) 
         print (layer.crs, 'and', master_crs)
     
-    return layer
+    return(layer)
 
 def reproject_r(in_path, out_path):
     'This is the function to reproject the raster data '
@@ -76,31 +76,6 @@ def getFeatures(gdf):
     return [json.loads(gdf.to_json())['features'][0]['geometry']]
 
 
-#convert shapefile to raster (work in progress)
-def main(shapefile):
-    #making the shapefile as an object.
-    input_shp = ogr.Open(shapefile)
-    shp_layer = input_shp.GetLayer()
-    pixel_size = 0.1
-    xmin, xmax, ymin, ymax = shp_layer.GetExtent()
-    ds = gdal.Rasterize(output_raster, shapefile, xRes=pixel_size, yRes=pixel_size, 
-                        burnValues=255, outputBounds=[xmin, ymin, xmax, ymax], 
-                        outputType=gdal.GDT_Byte)
-    ds = None
-
-
-
-#reading fields in gdal and ogr with hopes to rasterize (work in progress)
-shipping = (os.path.join(in_data_dir, 'shippinglanes/shippinglanes.shp'))
-input_shp = ogr.Open(shipping)
-#getting layer information of shapefile.
-shp_layer = input_shp.GetLayer()
-
-dataSource = ogr.Open(shipping)
-daLayer = dataSource.GetLayer(0)
-layerDefinition = daLayer.GetLayerDefn()
-for i in range(layerDefinition.GetFieldCount()):
-    print(layerDefinition.GetFieldDefn(i).GetName())
 
 
 #rasterizing test using rasterio and geopandas
@@ -108,33 +83,11 @@ import rasterio
 from rasterio.features import rasterize
 from rasterio.transform import from_bounds
 import geopandas as gpd
-# Load some sample data
-def rasterize(shapefile)
-    df = gpd.read_file(os.path.join(in_data_dir, 'shippinglanes/shippinglanes.shp')
-    # lose a bit of resolution, but this is a fairly large file, and this is only an example.
-    shape2 = (1000,1000)
-    transform = rasterio.transform.from_bounds(*df['geometry'].total_bounds, *shape2)
-    rasterize_rivernet = rasterize(
-        [(shape, 1) for shape in df['geometry']],
-        out_shape=shape2,
-        transform=transform,
-        fill=0,
-        all_touched=True,
-        dtype=rasterio.uint8)
 
-    with rasterio.open(
-        'rasterized-results.tif', 'w',
-        driver='GTiff',
-        dtype=rasterio.uint8,
-        count=1,
-        width=shape[0],
-        height=shape[1],
-        transform=transform
-    ) as dst:
-        dst.write(output_raster, indexes=1)
-    return(output_raster)
 
 #rasterize 3 work in progress
+#use reproject shipping lanes
+#use reporject dem as the base raster file
 shp_fn = (gpd.read_file(os.path.join(in_data_dir, 'shippinglanes/shippinglanes.shp')))
 rst_fn = (in_data_dir + './reproject_corpuschristi_dem.tif')
 out_fn = (in_data_dir + './rasterized.tif')
@@ -158,7 +111,6 @@ from shapely.geometry import box
 import geopandas as gpd
 from fiona.crs import from_epsg
 
-
 with fiona.open('./data/bounds/dem_bounds.shp', "r") as shapefile:
     shapes = [feature["geometry"] for feature in shapefile]
 
@@ -173,3 +125,21 @@ with rasterio.open('./data/reproject_wtk_conus_100m_mean_masked.tif') as src:
 
 with rasterio.open("RGB.byte.masked.tif", "w", **out_meta) as dest:
     dest.write(out_image)
+
+
+def mask(raster_file_in, raster_file_out):
+    with fiona.open('./data/bounds/dem_bounds.shp', "r") as shapefile:
+        shapes = [feature["geometry"] for feature in shapefile]
+
+    with rasterio.open(raster_file_in) as src:
+        out_image, out_transform = rasterio.mask.mask(src, shapes, crop=True)
+        out_meta = src.meta
+
+        out_meta.update({"driver": "GTiff",
+                    "height": out_image.shape[1],
+                    "width": out_image.shape[2],
+                    "transform": out_transform})
+
+    with rasterio.open(raster_file_out, "w", **out_meta) as dest:
+        dest.write(out_image)
+    return(raster_file_out)

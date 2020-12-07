@@ -26,154 +26,151 @@ from fiona.crs import from_epsg
 
 from Part1_FinalProject_mo import *
 
-#os.getcwd()
+
 in_data_dir = r'.\data'
 
-#using repojrected dem 
+#reproject dems
+dem_projected = reproject_r(in_data_dir + './corpuschristi_dem.tif', in_data_dir +'./reproject_corpuschristi_dem.tif')
+wind_projected = reproject_r(in_data_dir + './wtk_conus_100m_mean_masked.tif', in_data_dir +'./reproject_wtk_conus_100m_mean_masked.tif')
+
+#rasterize shapefiles with geocube
+
+#used the rasterized shapefiles, mask, reproject 
+ship_lanes = reproject('./shippinglanes/shippinglanes.shp')
+
+
+#rasterize shapefiles based on reprojected dem
+shp_fn = (gpd.read_file(os.path.join(in_data_dir, 'shippinglanes/shippinglanes.shp')))
+rst_fn = (in_data_dir + './reproject_corpuschristi_dem.tif')
+out_fn = (in_data_dir + './rasterized.tif')
+
+rst = rasterio.open(rst_fn)
+
+meta = rst.meta.copy()
+meta.update(compress='lzw')
+
+with rasterio.open(out_fn, 'w+', **meta) as out:
+    out_arr = out.read(1)
+    out.write_band(1, out_arr)
+
+reproject_easment  = reproject_r('./easements_ras.tif', './reproject_easements_ras.tif') 
+reproject_hab  = reproject_r('.\\habitat_ras.tif', '.\\reproject_habitat_ras.tif') 
+reproject_navdist = reproject_r('.\\navdist_ras.tif', '.\\reproject_navdist_ras.tif')
+reproject_oil = reproject_r('.\\oil_gas_assets.tif', '.\\reproject_oil_gas_assets.tif')
+reproject_speed_wind2 = reproject_r('.\\wind_suit.tif', '.\\reproject_wind_suit.tif')
+
+
+mask_easment  = mask(reproject_easment, '.\\reproject_easements_ras.tif')
+mask_hab  = mask(reproject_hab, '.\\Cilp_reproject_habitat_ras.tif') 
+mask_navdist = mask(reproject_navdist, '.\\Cilp_reproject_navdist_ras.tif')
+mask_oil = mask(reproject_oil, '.\\Cilp_reproject_oil_gas_assets.tif')
+mask_speed_wind2 = mask(reproject_speed_wind2, '.\\Cilp_reproject_wind_suit.tif')
+
+#reclassify 
+eas_Raster = rasterio.open(in_data_dir + mask_easment , 'r')  
+easments = eas_Raster.read(1) 
+suit_eas = np.where( easments == 1, 1,0)
+print('The number of sites ', suit_eas.sum())
+
+avoid_Raster = rasterio.open(in_data_dir +  mask_avoid , 'r')  
+area_avoid = aviod_Raster.read(1) 
+suit_area = np.where(area_avoid == 1 , 1,0)
+print('The number of sites ', suit_area.sum())
+
+hab_Raster = rasterio.open(in_data_dir + mask_hab  , 'r')  
+area_hab = hab_Raster.read(1) 
+suit_hab = np.where(area_hab == 1, 1,0)
+print('The number of sites ', suit_hab.sum())
+
+navdist_Raster = rasterio.open(in_data_dir + mask_navdist  , 'r')  
+navdist = navdist_Raster.read(1) 
+suit_navdist= np.where(navdist == 1 , 1,0)
+print('The number of sites ', suit_navdist.sum())
+
+oil_Raster = rasterio.open(in_data_dir + mask_oil  , 'r')  
+oil_rig_loc = oil_Raster.read(1) 
+suit_no_oil = np.where(oil_rig_loc == 1, 1,0)
+print('The number of sites ', suit_no_oil.sum())
+
+speed_Wind_Raster = rasterio.open(in_data_dir + mask_speed_wind2  , 'r')  
+Wind = speed_Wind_Raster.read(1) 
+Suit_speed_wind = np.where( Wind == 1 , 1,0)
+print('The number of sites ', Suit_speed_wind.sum())
+
+Wind50_Raster = rasterio.open(in_data_dir + mask_Sites_wind50  , 'r')  
+Wn50 = Wind50_Raster.read(1) 
+Suit_Wn50 = np.where(  Wn50 == 1 , 1,0)
+print('The number of sites ', Suit_Wn50.sum())
+
+    
+sum_area = suit_eas + suit_area + suit_hab + suit_navdist + suit_no_oil + Suit_speed_wind + Suit_Wn50 
+suitable_areas = np.where(sum_area == 7, 1, 0)
+print('Total number of suitable sites is ', suitable_areas.sum())
+Suitarray = []
+Suitarray.append(suitable_areas)
+#export 
+
+# reproject_avoid = reproject_r('.\\avoidance_area.tif', '.\\reproject_avoidance_area.tif')
+#reclassify avoidance areas so that we have suitable areas NODATA = 1, 1 = NODATA
+mask_avoid = mask(reproject_avoid, '.\\Cilp_reproject_avoidance_area.tif')
+
+
+#export results to a final tif windsites_50
+reproject_Sites_wind50 = reproject_r('.\\windsites_50m.tif', '.\\reproject_windsites_50m.tif')
+
+#compute slope and aspect of each of the suites located, zonal stats
+
 with rasterio.open(in_data_dir + './reproject_corpuschristi_dem.tif', 'r') as dem_file:
     dem = dem_file.read(1)
     dem_profile = dem_file.profile
     show(dem[1100:8350,1100:8350])
     dem_profile
     dem.shape
-    #calculates the slope and aspect using the DEM with a cell size of 30
-    #as part of the analysis, we could determine the slope and aspect of each suitable parcel
-    s,a = slopeAspect(dem, 30)
-    #recalculates the aspect to 8 cardinal directions using the fuction 
-    aspect = reclassAspect(a)
-    #using a bin size of 10, recalculate the slope grid into 10 classes using the function
-    s = reclassByHisto(s, 10)
-    #row first, last row. first column, last column
-    show(dem[1100:8350,1100:8350])
-    dem_profile
-    dem.shape
-    print(s,a)
-#set bounds to dem extents
-#create a polygon frame and use geopandas clip
-#site availablity section
-#remove O&G wells, pipelines, coastal leases from study area
-
-#reproject rasters into same CRS
-dem_projected = reproject_r(in_data_dir + './corpuschristi_dem.tif', in_data_dir +'./reproject_corpuschristi_dem.tif')
-wind_projected = reproject_r(in_data_dir + './wtk_conus_100m_mean_masked.tif', in_data_dir +'./reproject_wtk_conus_100m_mean_masked.tif')
-
-#open with rasterio the shipping districts
-with rasterio.open(in_data_dir + './rasters/navdist_ras.tif', 'r') as nav_dist:
-    nav = nav_dist.read(1)
-    nav_profile = nav_dist.profile
-    show(nav)
-    nav_profile
-    nav.shape
+    #COMPUTE ZONAL STATS OF EACH OF THE SITES
 
 
 
+with rasterio.open(in_data_dir + './rasterized.tif', 'r') as shiplanes:
+    ship = shiplanes.read(1)
+    ship_profile = shiplanes.profile
+    show(ship)
+    ship_profile
+    ship.shape
 
-shipping = gpd(os.path.join(in_data_dir, 'shippinglanes/shippinglanes.shp'))
-input_shp = ogr.Open(shipping)
-    #getting layer information of shapefile.
-shp_layer = input_shp.GetLayer()
+#compute straightline distance to nearest windfarm station 
+# #this calculation is not based on optimal route
+xs = []
+ys = []
+with open(os.path.join(in_data_dir, 'transmission_stations.txt')) as coords:
+    lines = coords.readlines()[1:]
+    for l in lines:
+        x,y = l.split(',')
+        xs.append(float(x))
+        ys.append(float(y))
+    #np.vstack is for pixel data with height (first axis) width (second axis), concatenates along the first axis
+    stations = np.vstack([xs, ys])
+    stations = stations.T
 
-dataSource = ogr.Open(shipping)
-daLayer = dataSource.GetLayer(0)
-layerDefinition = daLayer.GetLayerDefn()
-for i in range(layerDefinition.GetFieldCount()):
-    print(layerDefinition.GetFieldDefn(i).GetName())
+with rasterio.open(os.path.join(in_data_dir, 'suitable_sites.tif')) as file:
+    bounds = file.bounds
+    topLeft = (bounds[0], bounds[3])
+    lowRight = (bounds[2], bounds[1])
+    cellSize = 1000
+    x_coords = np.arange(topLeft[0] + cellSize/2, lowRight[0], cellSize) #gives range of x coordinates
+    y_coords = np.arange(lowRight[1] + cellSize/2, topLeft[1], cellSize) #gives range of y coordinates 
+    #meshgrid cretaes a rectangular grid out of two given one-dim arrays reprenting cartesian indexing       
+    x,y = np.meshgrid(x_coords, y_coords)
+    #np.c_ tranlates slice objects to concatenation along the second axes, flatten returns the array in one dimension
+    coord = (np.c_[x.flatten(), y.flatten()])
 
+#provides an index into a set of k-dimensional points which can be used to rapidly look up the nearest neighbors of any point.
+tree = cKDTree(coord)
 
-bufferdist = 500
-shipping_buff = shipping.buffer(500)
-
-
-#nearest neighbor
-#compute distance to nearest wind farm
-
-#convert shapefile to raster
-
-
-practice = reproject_r('./corpuschristi_dem.tif', './reproject_corpuschristi_dem.tif')
-print(practice)
-
-with rasterio.open(in_data_dir + '.\\wtk_conus_100m_mean_masked.tif', 'r') as dem_file:
-    wind = dem_file.read(1) 
-    #wind = reprogject(dem)
-    #practice = reproject_raster(wind)
-    #print(practic.crs)
-    #crs_UTM13 = CRS.from_string('EPSG:26914')
-    # Reproject the data using the crs object
-    #layer_UTM13 = wind.rxr.reproject(crs_wgs84)
-    #layer_UTM13.rxr.crs
-#    suit_wind_speed = np.where( 7.0 < wind, 1, 0)
-#    print('The number of sites where wind speed is greater than 7 m ', suit_wind_speed.sum())
-    
-#with rasterio.open(in_data_dir + '.\\corpuschristi_dem.tif', 'r') as dem_file:
-#    beach = dem_file.read(1) 
-    #beach = reprogject(dem)
-#    suit_beach = np.where( beach == 0.0 , 1, 0)
-#    print('The number of sites where elevation is at sea level ', suit_beach.sum())
-
-data_dir = "L5_data"
-
-# Input raster
-fp = os.path.join(data_dir, "p188r018_7t20020529_z34__LV-FIN.tif")
-
-# Output raster
-out_tif = os.path.join(data_dir, "Helsinki_Masked.tif")
-
-# Read the data
-data = rasterio.open(fp)
-
-# Visualize the NIR band
-show((data, 4), cmap='terrain')
+#performs the nearest neighbor operations, with k being the nearest neighbors to return 
+dd, ii = tree.query(stations, k=5)
 
 
-# WGS84 coordinates
-minx, miny = 24.60, 60.00
-maxx, maxy = 25.22, 60.35
-bbox = box(minx, miny, maxx, maxy)
-
-geo = gpd.GeoDataFrame({'geometry': bbox}, index=[0], crs=from_epsg(4326))
-print(geo)
-
-# Project the Polygon into same CRS as the grid
-geo = geo.to_crs(crs=data.crs.data)
-
-# Print crs
-geo.crs
-
-
-
-coords = getFeatures(geo)
-print(coords)
-
-
-# Clip the raster with Polygon
-out_img, out_transform = mask(dataset=data, shapes=coords, crop=True)
-
-
-# Copy the metadata
-out_meta = data.meta.copy()
-print(out_meta)
-
-
-
-# Parse EPSG code
-epsg_code = int(data.crs.data['init'][5:])
-print(epsg_code)
-
-out_meta.update({"driver": "GTiff",
-                 "height": out_img.shape[1],
-                 "width": out_img.shape[2],
-                 "transform": out_transform,
-                 "crs": pycrs.parser.from_epsg_code(epsg_code).to_proj4()}
-                         )
-
-
-with rasterio.open(out_tif, "w", **out_meta) as dest:
-        dest.write(out_img)
-        
-
-# Open the clipped raster file
-clipped = rasterio.open(out_tif)
-
-# Visualize
-show((clipped, 5), cmap='terrain')
+print('The maximum distance to the closest transmission substation among all of the suitable sites is ' 
+      +  str(dd.max()) + ' meters')
+print('The minimum distance to the closest transmission substation among all of the suitable sites is ' 
+      +  str(dd.min()) + ' meters')

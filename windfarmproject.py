@@ -23,6 +23,7 @@ from rasterio.mask import mask
 from rasterio.crs import CRS
 from rasterio.warp import calculate_default_transform, reproject, Resampling
 from fiona.crs import from_epsg
+from scipy.spatial import cKDTree
 
 from Part1_FinalProject_mo import *
 
@@ -69,13 +70,8 @@ mask_speed_wind2 = mask(reproject_speed_wind2, '.\\Cilp_reproject_wind_suit.tif'
 #reclassify 
 eas_Raster = rasterio.open(in_data_dir + mask_easment , 'r')  
 easments = eas_Raster.read(1) 
-suit_eas = np.where( easments == 1, 1,0)
+suit_eas = np.where( easments == 1, 0,1)
 print('The number of sites ', suit_eas.sum())
-
-avoid_Raster = rasterio.open(in_data_dir +  mask_avoid , 'r')  
-area_avoid = aviod_Raster.read(1) 
-suit_area = np.where(area_avoid == 1 , 1,0)
-print('The number of sites ', suit_area.sum())
 
 hab_Raster = rasterio.open(in_data_dir + mask_hab  , 'r')  
 area_hab = hab_Raster.read(1) 
@@ -96,6 +92,8 @@ speed_Wind_Raster = rasterio.open(in_data_dir + mask_speed_wind2  , 'r')
 Wind = speed_Wind_Raster.read(1) 
 Suit_speed_wind = np.where( Wind == 1 , 1,0)
 print('The number of sites ', Suit_speed_wind.sum())
+
+#add the dem back in 
 
 Wind50_Raster = rasterio.open(in_data_dir + mask_Sites_wind50  , 'r')  
 Wn50 = Wind50_Raster.read(1) 
@@ -141,36 +139,89 @@ with rasterio.open(in_data_dir + './rasterized.tif', 'r') as shiplanes:
 # #this calculation is not based on optimal route
 xs = []
 ys = []
-with open(os.path.join(in_data_dir, 'transmission_stations.txt')) as coords:
+id_existing = []
+with open(os.path.join(in_data_dir, 'windfarm_location.txt')) as coords:
     lines = coords.readlines()[1:]
     for l in lines:
-        x,y = l.split(',')
+        x,y,ids = l.split(',')
         xs.append(float(x))
         ys.append(float(y))
+        #if x-coord w
+        id_existing.append(int(ids))
+print(id_existing)
     #np.vstack is for pixel data with height (first axis) width (second axis), concatenates along the first axis
     stations = np.vstack([xs, ys])
     stations = stations.T
 
-with rasterio.open(os.path.join(in_data_dir, 'suitable_sites.tif')) as file:
+
+variables = {}
+
+#with open('windfarm_location.txt') as f:
+    for line in f:
+        name, value, ids = line.split(",")
+        variables[ids] = str(value)
+
+with rasterio.open(os.path.join(in_data_dir, 'windsites_UID.tif')) as file:
     bounds = file.bounds
+    file_profile=file.profile
+    file_profile
+    show(file)
     topLeft = (bounds[0], bounds[3])
     lowRight = (bounds[2], bounds[1])
-    cellSize = 1000
+    cellSize = 100
     x_coords = np.arange(topLeft[0] + cellSize/2, lowRight[0], cellSize) #gives range of x coordinates
     y_coords = np.arange(lowRight[1] + cellSize/2, topLeft[1], cellSize) #gives range of y coordinates 
     #meshgrid cretaes a rectangular grid out of two given one-dim arrays reprenting cartesian indexing       
     x,y = np.meshgrid(x_coords, y_coords)
     #np.c_ tranlates slice objects to concatenation along the second axes, flatten returns the array in one dimension
     coord = (np.c_[x.flatten(), y.flatten()])
+    
+with rasterio.open(os.path.join(in_data_dir, 'windsites_UID.tif'), 'r') as ras:
+            rasXmin = ras.bounds.left
+            rasYmin = ras.bounds.bottom
+            cellSize = ras.meta['transform'][1]
+
+rasHeight = suit_arr.shape[0]
+rasWidth = suit_arr.shape[1]
+
+allXs = np.fromfunction(findX, (rasHeight,rasWidth))
+centerXs = allXs[suit_arr==1]
+centerXs = centerXs.flatten()
+
+allYs = np.fromfunction(findY, (rasHeight,rasWidth))
+centerYs = allYs[suit_arr==1]
+centerYs = centerYs.flatten()
+
+centroids = np.vstack([centerXs,centerYs])
+centroids = centroids.T
+
+transCoords = np.loadtxt(os.path.join(FILE_DIR, 'transmission_stations.txt'), delimiter=',', skiprows=1)
+
+dist, indices = cKDTree(transCoords).query(centroids)
+
+print('The shortest distance is:',np.min(dist),'and the maximum distance is:',np.max(dist))
+
+ #work with rasters in isolated 
+ #create a way to identify groups 
+ #reclassify
 
 #provides an index into a set of k-dimensional points which can be used to rapidly look up the nearest neighbors of any point.
 tree = cKDTree(coord)
 
 #performs the nearest neighbor operations, with k being the nearest neighbors to return 
+#ii is the location of the neighbor
 dd, ii = tree.query(stations, k=5)
 
+#due to transmission substation data not available, the following provides a calculate to the nearest windfarm
+print('The maximum distance to the closest windfarm among all of the suitable sites is ' 
+      +  str(dd.max()) + ' km')
+print('The minimum distance to the closest windfarm  among all of the suitable sites is ' 
+      +  str(ii.min()) + ' km')
 
-print('The maximum distance to the closest transmission substation among all of the suitable sites is ' 
-      +  str(dd.max()) + ' meters')
-print('The minimum distance to the closest transmission substation among all of the suitable sites is ' 
-      +  str(dd.min()) + ' meters')
+print(dd)
+
+
+#zonal stats
+
+ZonalStats(windsites_UID.tif, aspectBurn, "slp.csv")
+ZonalStats(windsites_UID.tif, slopeBurn, "aspect.csv")

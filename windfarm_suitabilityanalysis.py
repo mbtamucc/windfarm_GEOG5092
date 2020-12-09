@@ -77,6 +77,13 @@ Suit_speed_wind = np.where(Wind_arr == 1, 1, 0)
 show(Suit_speed_wind)
 print('The number of sites ', Suit_speed_wind.sum())
 
+beach_buff_Raster = rasterio.open(in_data_dir + './beach_buff.tif', 'r')  
+beach_arr = beach_buff_Raster.read(1) 
+beach_buff_Raster.meta
+suit_beach = np.where(beach_arr == 0, 0, 1)
+show(suit_beach)
+print('The number of sites ', suit_beach.sum())
+
 meta = speed_Wind_Raster.meta
 meta.update({'dtype':'int32', 'nodata' : 0})
 

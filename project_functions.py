@@ -1,6 +1,5 @@
 import numpy as np
 import os
-import rasterio 
 from rasterio.plot import show, show_hist
 import glob
 import scipy
@@ -18,7 +17,7 @@ import geopandas as gpd
 import numpy as np
 import rioxarray as rxr
 import os
-from shapely.geometry import Point, LineString, Polygon, box
+from shapely.geometry import Point, LineString, Polygon, box, shape
 from rasterio.mask import mask
 from rasterio.crs import CRS
 from rasterio.warp import calculate_default_transform, reproject, Resampling
@@ -49,7 +48,7 @@ def vector (input,output):
         vector_data=merged_gpd,
         resolution=(100, 100),
     )
-    grid.present.rio.to_raster(output, compress="DEFLATE", bigtiff="YES")
+    grid.present.rio.to_raster(output, compress="DEFLATE")
     return(output)
     
 #reproject and resample
@@ -83,7 +82,21 @@ def getFeatures(gdf):
     import json
     return [json.loads(gdf.to_json())['features'][0]['geometry']]
 
+def mask(raster_file_in, raster_file_out):
+    with fiona.open('./data/bounds/dem_bounds.shp', "r") as shapefile:
+        shapes = [feature["geometry"] for feature in shapefile]
+    with rasterio.open(raster_file_in) as src:
+        out_image, out_transform = rasterio.mask.mask(src, shapes, crop=True)
+        out_meta = src.meta
+        out_meta.update({"driver": "GTiff",
+                    "height": out_image.shape[1],
+                    "width": out_image.shape[2],
+                    "transform": out_transform})
+    with rasterio.open(raster_file_out, "w", **out_meta) as dest:
+        dest.write(out_image)
+    return(raster_file_out)
 
+wind_clip = mask('./data/reproject_wtk_conus_100m_mean_masked.tif', './data/clip_reproject_wtk_conus_100m_mean_masked.tif') 
 
 def zonalStats(npArray, zoneArray,output_csv):
     vals = np.unique(zoneArray)
@@ -148,22 +161,9 @@ def reclassAspect(npArray):
     np.where((npArray > 247.5) & (npArray <= 292.5), 7,
     np.where((npArray > 292.5) & (npArray <= 337.5), 8, 1)))))))
 
-def mask(raster_file_in, raster_file_out):
-    with fiona.open('./data/bounds/dem_bounds.shp', "r") as shapefile:
-        shapes = [feature["geometry"] for feature in shapefile]
 
-    with rasterio.open(raster_file_in) as src:
-        out_image, out_transform = rasterio.mask.mask(src, shapes, crop=True)
-        out_meta = src.meta
+#work on resample
 
-        out_meta.update({"driver": "GTiff",
-                    "height": out_image.shape[1],
-                    "width": out_image.shape[2],
-                    "transform": out_transform})
-
-    with rasterio.open(raster_file_out, "w", **out_meta) as dest:
-        dest.write(out_image)
-    return(raster_file_out)
 
 def reclassByHisto(npArray, bins):
     """Reclassify np array based on a histogram approach using a specified
@@ -188,3 +188,120 @@ def reclassByHisto(npArray, bins):
         rClss = np.where((npArray >= histo[i]) & (npArray <= histo[i + 1]),
                          i + 1, rClss)
     return rClss
+
+
+def clip_and_buffer_geodataframes(list_gdfs, 
+                                  list_of_labels, 
+                                  boundary, 
+                                  master_crs, 
+                                  buffer_dist=4400):
+   #every time you write a funciton, be sure to explain that funciton. this one using numpy
+    """Given a number of geodataframes, clips each one against the park boundary,
+    perform a buffer operation using the provided distance, and dissolve all
+    buffer into a single poly.
+
+    Parameters
+    ----------
+    list_gdfs : list
+        List of geodataframes.
+    list_of_labels : list
+        List of labels.
+    boundary : Geopandas Geodataframe
+        Park boundary
+    master_crs : CRS
+        CRS information to be use on all re-project operations.
+        Final geodataframe will be on this projection.
+    buffer_dist : int, optional
+        Buffer distance in meters, by default 100
+
+    Returns
+    -------
+    Geopandas Geodataframe
+        Geodataframe containing the buffer.
+    """
+    buffer_geoms = []
+
+    for idx, e in enumerate(list_gdfs):
+        gdf_buffer = gpd.GeoDataFrame()
+
+        if e.crs != master_crs:
+            print(list_of_labels[idx], 'is not on the master projection, reprojecting now...')
+            e = e.to_crs(master_crs)
+
+        # Clip each feature to the park bnd, this reduces the number of features we are dealing with.
+        print('Clipping', list_of_labels[idx])
+        e = gpd.overlay(e, boundary, how='intersection')
+
+        print('Buffering', list_of_labels[idx])
+        gdf_buffer['geometry'] = e.buffer(buffer_dist)
+        gdf_buffer['source'] = list_of_labels[idx]
+
+        # Dissolving each feature after the buffer improved performance by a lot!
+        print('Dissolving', list_of_labels[idx])
+        gdf_buffer = gdf_buffer.dissolve(by='source')
+
+        buffer_geoms.append(gdf_buffer)
+
+    unioned_gdf = pd.concat(buffer_geoms)
+    unioned_gdf.crs = master_crs
+
+    return unioned_gdf
+
+def polygonize(self, data=None, mask=None, connectivity=4, transform=None):
+        """
+        Yield (polygon, value) for each set of adjacent pixels of the same value.
+        Wrapper around rasterio.features.shapes
+
+        From rasterio documentation:
+
+        Parameters
+        ----------
+        data : numpy ndarray
+        mask : numpy ndarray
+               Values of False or 0 will be excluded from feature generation.
+        connectivity : 4 or 8 (int)
+                       Use 4 or 8 pixel connectivity.
+        transform : affine.Affine
+                    Transformation from pixel coordinates of `image` to the
+                    coordinate system of the input `shapes`.
+        """
+       
+        if data is None:
+            data = self.mask.astype(np.uint8)
+        if mask is None:
+            mask = self.mask
+        if transform is None:
+            transform = self.affine
+        shapes = rasterio.features.shapes(data, mask=mask, connectivity=connectivity,
+                                          transform=transform)
+        return shapes 
+
+
+#polgyonize 
+def polygonize(raster_file, vector_file, driver, mask_value):
+    
+    with rasterio.drivers():
+        
+        with rasterio.open(raster_file) as src:
+            image = src.read(1)
+        
+        if mask_value is not None:
+            mask = image == mask_value
+        else:
+            mask = None
+        
+        results = (
+            {'properties': {'raster_val': v}, 'geometry': s}
+            for i, (s, v) 
+            in enumerate(
+                shapes(image, mask=mask, transform=src.affine)))
+
+        with fiona.open(
+                vector_file, 'w', 
+                driver=driver,
+                crs=src.crs,
+                schema={'properties': [('raster_val', 'int')],
+                        'geometry': 'Polygon'}) as dst:
+            dst.writerecords(results)
+    
+    return dst.name

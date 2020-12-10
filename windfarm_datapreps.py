@@ -21,13 +21,19 @@ from rasterstats import zonal_stats
 import fiona
 import geocube
 
-from Part1_FinalProject_mo import *
+from project_functions import *
 
 
 in_data_dir = r'.\data'
 
 
+
 ##Start data preparations##
+beach = gpd.read_file(os.path.join(in_data_dir, 'GDB_BeachBayAccess/BeachAccessPoints.shp'))
+re_beach = reproject(beach)
+re_beach.buffer(6437)
+re_beach['geometry']= re_beach.buffer(6437)
+
 #rasterize vector files using geocube
 easement = vector(gpd.read_file(in_data_dir + './GDB_ME/Misc_Easements.gdb'), './easements_ras.tif')
 oilgas = vector(gpd.read_file(in_data_dir + './gdb_osi/GDB_OSI.gdb'), './oil_gas_assets.tif')

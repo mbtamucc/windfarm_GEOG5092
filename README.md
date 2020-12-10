@@ -8,6 +8,7 @@ multiple functions were utilized for this project (reproject, mask, rasterize ve
 
 windfarm suitability analysis was parsed into its own file 'windfarm_suitabiltyanalysis.py'
 
-suit_windfarm.tif is the resulting tif of the suitability analysis
-
-*********this is still a work in progress compute slopeAspect are not fully functional*******
+Results:
+suit_windfarm.tif
+elevations_stats
+presentation_map
